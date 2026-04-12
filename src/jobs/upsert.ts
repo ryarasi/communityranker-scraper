@@ -5,6 +5,7 @@ import type { CommunityExtraction } from "../schemas/community.js";
 interface UpsertPayload {
   url: string;
   extraction: CommunityExtraction;
+  category?: string;
 }
 
 function extractDomain(url: string): string {
@@ -15,77 +16,61 @@ function extractDomain(url: string): string {
   }
 }
 
+function makeSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
 export const upsert: Task = async (payload, helpers) => {
-  const { url, extraction } = payload as UpsertPayload;
+  const { url, extraction, category } = payload as UpsertPayload;
   const domain = extractDomain(url);
+  const slug = makeSlug(extraction.name);
 
   helpers.logger.info(`Upserting community: ${extraction.name} (${domain})`);
 
   try {
-    // Upsert into communities table, dedup by domain
+    // Upsert into communities table — match API schema columns exactly
     const [community] = await sql`
       INSERT INTO communities (
-        name, description, primary_url, domain, platform,
-        access_model, language, geo_scope, created_at, updated_at
+        name, slug, description, primary_url, domain, platform,
+        member_count, access_model, geo_scope, status, created_at, updated_at
       ) VALUES (
         ${extraction.name},
+        ${slug},
         ${extraction.description},
-        ${extraction.primaryUrl},
+        ${extraction.primaryUrl ?? url},
         ${domain},
         ${extraction.platform},
+        ${extraction.memberCount},
         ${extraction.accessModel},
-        ${extraction.language},
         ${extraction.geoScope},
+        'draft',
         NOW(), NOW()
       )
-      ON CONFLICT (domain) DO UPDATE SET
-        name = EXCLUDED.name,
-        description = EXCLUDED.description,
-        primary_url = EXCLUDED.primary_url,
-        platform = EXCLUDED.platform,
-        access_model = EXCLUDED.access_model,
-        language = EXCLUDED.language,
-        geo_scope = EXCLUDED.geo_scope,
+      ON CONFLICT (slug) DO UPDATE SET
+        description = COALESCE(NULLIF(EXCLUDED.description, ''), communities.description),
+        member_count = COALESCE(EXCLUDED.member_count, communities.member_count),
+        platform = COALESCE(EXCLUDED.platform, communities.platform),
+        access_model = COALESCE(EXCLUDED.access_model, communities.access_model),
         updated_at = NOW()
       RETURNING id
     `;
 
     const communityId = community!.id;
 
-    // Upsert community profile
-    await sql`
-      INSERT INTO community_profiles (
-        community_id, topics, founded_year, pricing_monthly, updated_at
-      ) VALUES (
-        ${communityId},
-        ${sql.array(extraction.topics)},
-        ${extraction.foundedYear},
-        ${extraction.pricingMonthly},
-        NOW()
-      )
-      ON CONFLICT (community_id) DO UPDATE SET
-        topics = EXCLUDED.topics,
-        founded_year = EXCLUDED.founded_year,
-        pricing_monthly = EXCLUDED.pricing_monthly,
-        updated_at = NOW()
-    `;
-
-    // Insert community metrics snapshot
+    // Insert metrics snapshot
     await sql`
       INSERT INTO community_metrics (
-        community_id, member_count, member_count_confidence,
-        activity_level, measured_at
+        community_id, member_count, activity_score, snapshot_date
       ) VALUES (
         ${communityId},
         ${extraction.memberCount},
-        ${extraction.memberCountConfidence},
-        ${extraction.activityLevel},
+        ${extraction.activityLevel === 'very_active' ? 90 : extraction.activityLevel === 'active' ? 70 : extraction.activityLevel === 'moderate' ? 50 : extraction.activityLevel === 'low' ? 25 : null},
         NOW()
       )
     `;
 
     helpers.logger.info(
-      `Upserted community ${extraction.name} with id ${communityId}`
+      `Upserted community ${extraction.name} (${slug}) with id ${communityId}`
     );
   } catch (err) {
     helpers.logger.error(

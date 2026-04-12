@@ -4,14 +4,12 @@ import { crawlUrl } from "../sources/spider.js";
 
 interface ScrapePayload {
   url: string;
-  title?: string;
   category?: string;
   platform?: string;
-  subscribers?: number;
 }
 
 export const scrape: Task = async (payload, helpers) => {
-  const { url, title, category, platform } = payload as ScrapePayload;
+  const { url, category, platform } = payload as ScrapePayload;
 
   helpers.logger.info(`Scraping: ${url}`);
 
@@ -23,17 +21,15 @@ export const scrape: Task = async (payload, helpers) => {
       return;
     }
 
-    // Store raw markdown in sources table
+    // Store raw markdown in sources table (matches API schema)
     await sql`
-      INSERT INTO sources (url, title, category, platform, raw_markdown, scraped_at)
-      VALUES (${url}, ${title ?? null}, ${category ?? null}, ${platform ?? null}, ${markdown}, NOW())
-      ON CONFLICT (url) DO UPDATE SET
-        raw_markdown = EXCLUDED.raw_markdown,
-        scraped_at = NOW()
+      INSERT INTO sources (url, raw_content, scraped_at)
+      VALUES (${url}, ${markdown}, NOW())
+      ON CONFLICT DO NOTHING
     `;
 
     // Queue extraction job
-    await helpers.addJob("extract", { url });
+    await helpers.addJob("extract", { url, category, platform });
 
     helpers.logger.info(`Scraped and stored: ${url} (${markdown.length} chars)`);
   } catch (err) {
