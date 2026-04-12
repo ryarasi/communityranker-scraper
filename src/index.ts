@@ -9,7 +9,7 @@ import { refresh } from "./jobs/refresh.js";
 async function main() {
   const runner = await run({
     connectionString: env.DATABASE_URL,
-    concurrency: 5,
+    concurrency: 2,
     noHandleSignals: false,
     pollInterval: 1000,
     taskList: {
