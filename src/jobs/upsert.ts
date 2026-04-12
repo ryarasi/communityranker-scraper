@@ -44,7 +44,7 @@ export const upsert: Task = async (payload, helpers) => {
         ${extraction.memberCount},
         ${extraction.accessModel},
         ${extraction.geoScope},
-        'draft',
+        'published',
         NOW(), NOW()
       )
       ON CONFLICT (slug) DO UPDATE SET
