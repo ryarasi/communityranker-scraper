@@ -13,16 +13,16 @@ export const extract: Task = async (payload, helpers) => {
 
   // Fetch raw markdown from sources
   const [source] = await sql`
-    SELECT raw_markdown FROM sources WHERE url = ${url}
+    SELECT raw_content FROM sources WHERE url = ${url}
   `;
 
-  if (!source?.raw_markdown) {
+  if (!source?.raw_content) {
     helpers.logger.warn(`No markdown found for ${url}`);
     return;
   }
 
   try {
-    const extraction = await extractCommunityData(source.raw_markdown);
+    const extraction = await extractCommunityData(source.raw_content);
 
     helpers.logger.info(`Extracted community: ${extraction.name}`);
 
