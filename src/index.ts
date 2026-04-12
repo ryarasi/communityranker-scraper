@@ -19,16 +19,16 @@ async function main() {
       upsert,
       refresh,
     },
-    parsedCronItems: parseCrontab({
-      crontab: [
+    parsedCronItems: parseCrontab(
+      [
         // Discovery: 02:00 UTC daily
         "0 2 * * * discover ?fill=1d",
         // Refresh stale listings: 03:00 UTC daily
         "0 3 * * * refresh ?fill=1d",
         // Ranking recomputation: 04:00 UTC daily
         "0 4 * * * ranking ?fill=1d",
-      ].join("\n"),
-    }),
+      ].join("\n")
+    ),
   });
 
   await runner.promise;
