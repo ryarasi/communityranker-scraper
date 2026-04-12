@@ -1,6 +1,7 @@
 import type { Task } from "graphile-worker";
 import { sql } from "../db/client.js";
 import type { CommunityExtraction } from "../schemas/community.js";
+import { alertSuccess } from "../lib/alerts.js";
 
 interface UpsertPayload {
   url: string;
@@ -71,6 +72,11 @@ export const upsert: Task = async (payload, helpers) => {
 
     helpers.logger.info(
       `Upserted community ${extraction.name} (${slug}) with id ${communityId}`
+    );
+
+    await alertSuccess(
+      "Community Added",
+      `**${extraction.name}**\n${extraction.description ?? ''}\nPlatform: ${extraction.platform ?? 'unknown'}\nURL: ${extraction.primaryUrl ?? url}`
     );
   } catch (err) {
     helpers.logger.error(
