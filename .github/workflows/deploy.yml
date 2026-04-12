@@ -1,0 +1,23 @@
+name: Deploy Scraper to Hetzner
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ryarasi
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            cd /opt/communityranker/communityranker-scraper
+            git pull origin master
+            cd /opt/communityranker
+            docker compose build scraper
+            docker compose up -d scraper
+            echo "Scraper deployed at $(date)"
