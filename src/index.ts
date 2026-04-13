@@ -11,6 +11,7 @@ import { vet_communities } from "./jobs/vet_communities.js";
 import { refresh_stale } from "./jobs/refresh_stale.js";
 import { compute_scores } from "./jobs/compute_scores.js";
 import { take_snapshots } from "./jobs/take_snapshots.js";
+import { harvest_hive_sitemap } from "./jobs/harvest_hive_sitemap.js";
 
 async function main() {
   // Validate all API keys and connections before starting
@@ -32,6 +33,7 @@ async function main() {
       refresh_stale,
       compute_scores,
       take_snapshots,
+      harvest_hive_sitemap, // One-time job, not on cron. Trigger: add_job('harvest_hive_sitemap', '{}')
     },
     parsedCronItems: parseCrontab(
       [

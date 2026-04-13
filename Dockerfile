@@ -12,4 +12,5 @@ RUN npm install -g pnpm
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/dist ./dist
+COPY hiveindex-sitemap.xml ./hiveindex-sitemap.xml
 CMD ["node", "dist/index.js"]
