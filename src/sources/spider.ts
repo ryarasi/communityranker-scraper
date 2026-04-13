@@ -1,7 +1,11 @@
 import axios, { AxiosError } from "axios";
 import { env } from "../lib/env.js";
+import { recordApiSuccess, recordApiError, isCircuitOpen, logSpend, DRY_RUN, dryRunLog } from "../lib/safeguards.js";
 
 const SPIDER_API_URL = "https://api.spider.cloud/crawl";
+
+// Cost: ~$0.01 per page (rough average)
+const SPIDER_COST_PER_PAGE = 0.01;
 
 // Non-retryable errors — don't waste attempts
 const NON_RETRYABLE_CODES = [401, 402, 403, 404];
@@ -14,6 +18,15 @@ export class SpiderAuthError extends Error {
 }
 
 export async function crawlUrl(url: string): Promise<string> {
+  if (DRY_RUN) {
+    dryRunLog("spider", `Would crawl: ${url}`);
+    return "";
+  }
+
+  if (isCircuitOpen("spider")) {
+    throw new SpiderAuthError("Spider circuit breaker is open — too many consecutive errors");
+  }
+
   try {
     const response = await axios.post(
       SPIDER_API_URL,
@@ -32,6 +45,9 @@ export async function crawlUrl(url: string): Promise<string> {
       }
     );
 
+    await recordApiSuccess("spider");
+    logSpend("spider", SPIDER_COST_PER_PAGE, "crawl");
+
     const result = response.data;
     if (Array.isArray(result) && result.length > 0) {
       return result[0].content ?? "";
@@ -41,8 +57,9 @@ export async function crawlUrl(url: string): Promise<string> {
   } catch (err) {
     if (err instanceof AxiosError && err.response) {
       const status = err.response.status;
+      await recordApiError("spider", `HTTP ${status} for ${url}`, status);
+
       if (NON_RETRYABLE_CODES.includes(status)) {
-        // Don't retry auth/billing/not-found errors
         throw new SpiderAuthError(
           `Spider.cloud returned ${status} for ${url}. Check API key and billing.`
         );

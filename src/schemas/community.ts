@@ -4,13 +4,14 @@ export const platformEnum = z.enum([
   "discord",
   "slack",
   "reddit",
+  "circle",
+  "mighty_networks",
+  "skool",
+  "discourse",
   "facebook",
   "telegram",
   "whatsapp",
-  "circle",
-  "mighty_networks",
-  "guild",
-  "meetup",
+  "custom",
   "other",
 ]);
 
@@ -33,7 +34,6 @@ export const activityLevelEnum = z.enum([
   "active",
   "moderate",
   "low",
-  "inactive",
   "unknown",
 ]);
 
@@ -45,29 +45,43 @@ export const geoScopeEnum = z.enum([
   "unknown",
 ]);
 
-export const communityExtractionSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  primaryUrl: z.string(),
-  platform: platformEnum,
-  memberCount: z.number().nullable(),
-  memberCountConfidence: memberCountConfidenceEnum,
-  foundedYear: z.number().nullable(),
-  accessModel: accessModelEnum,
-  pricingMonthly: z.number().nullable(),
-  topics: z.array(z.string()),
-  activityLevel: activityLevelEnum,
-  geoScope: geoScopeEnum,
-  language: z.string(),
-});
+// New schema with strict validation — Gemini returns valid:false for non-community pages
+export const communityExtractionSchema = z.discriminatedUnion("valid", [
+  // Valid community extraction
+  z.object({
+    valid: z.literal(true),
+    name: z.string(),
+    description: z.string(),
+    primaryUrl: z.string(),
+    platform: platformEnum,
+    memberCount: z.number().nullable(),
+    memberCountConfidence: memberCountConfidenceEnum,
+    accessModel: accessModelEnum,
+    pricingMonthly: z.number().nullable(),
+    topics: z.array(z.string()),
+    activityLevel: activityLevelEnum,
+    geoScope: geoScopeEnum,
+    language: z.string(),
+    foundedYear: z.number().nullable(),
+    founderName: z.string().nullable(),
+    uniqueValue: z.string().nullable(),
+  }),
+  // Invalid page — not a community
+  z.object({
+    valid: z.literal(false),
+    reason: z.string(),
+  }),
+]);
 
 export type CommunityExtraction = z.infer<typeof communityExtractionSchema>;
 
 export const communityJsonSchema = {
   type: "object",
   properties: {
+    valid: { type: "boolean" },
+    reason: { type: "string", description: "Only if valid=false" },
     name: { type: "string" },
-    description: { type: "string" },
+    description: { type: "string", description: "2-3 sentences" },
     primaryUrl: { type: "string" },
     platform: {
       type: "string",
@@ -78,7 +92,6 @@ export const communityJsonSchema = {
       type: "string",
       enum: memberCountConfidenceEnum.options,
     },
-    foundedYear: { type: ["number", "null"] },
     accessModel: {
       type: "string",
       enum: accessModelEnum.options,
@@ -94,20 +107,9 @@ export const communityJsonSchema = {
       enum: geoScopeEnum.options,
     },
     language: { type: "string" },
+    foundedYear: { type: ["number", "null"] },
+    founderName: { type: ["string", "null"] },
+    uniqueValue: { type: ["string", "null"] },
   },
-  required: [
-    "name",
-    "description",
-    "primaryUrl",
-    "platform",
-    "memberCount",
-    "memberCountConfidence",
-    "foundedYear",
-    "accessModel",
-    "pricingMonthly",
-    "topics",
-    "activityLevel",
-    "geoScope",
-    "language",
-  ],
+  required: ["valid"],
 };

@@ -9,6 +9,11 @@ const envSchema = z.object({
   DATAFORSEO_LOGIN: z.string().default(""),
   DATAFORSEO_PASSWORD: z.string().default(""),
   DISCORD_WEBHOOK_URL: z.string().default(""),
+  // Pipeline safeguard config
+  DRY_RUN: z.string().default("false"),
+  BUDGET_SPIDER_DAILY: z.string().default("5"),
+  BUDGET_GEMINI_DAILY: z.string().default("2"),
+  BUDGET_SERPER_DAILY: z.string().default("1"),
 });
 
 export const env = envSchema.parse(process.env);
