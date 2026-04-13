@@ -170,7 +170,38 @@ export async function checkLegitimacy(community: Community): Promise<GateResult>
     domainBlocked = !!blocked;
   }
 
-  const passed = platformRecognized && !domainBlocked;
+  // URL coherence: does the primary_url domain make sense for the stated platform?
+  let urlCoherent = true;
+  let urlCoherenceReason = "";
+
+  if (community.primaryUrl && community.platform) {
+    const domain = community.domain ?? "";
+    const url = community.primaryUrl;
+
+    // Platform-specific checks
+    if (community.platform === "slack" && !url.includes("slack.com")) {
+      urlCoherent = false;
+      urlCoherenceReason = `platform is slack but URL domain is ${domain}`;
+    } else if (community.platform === "discord" && !url.includes("discord.gg") && !url.includes("discord.com/invite")) {
+      urlCoherent = false;
+      urlCoherenceReason = `platform is discord but URL domain is ${domain}`;
+    } else if (community.platform === "reddit" && !url.includes("reddit.com/r/")) {
+      urlCoherent = false;
+      urlCoherenceReason = `platform is reddit but URL domain is ${domain}`;
+    }
+
+    // Generic check: primary URL shouldn't point to social media profiles
+    const socialDomains = ["instagram.com", "twitter.com", "x.com", "youtube.com", "tiktok.com", "linkedin.com"];
+    for (const social of socialDomains) {
+      if (domain === social || domain.endsWith(`.${social}`)) {
+        urlCoherent = false;
+        urlCoherenceReason = `primary URL points to ${social}, not a community platform`;
+        break;
+      }
+    }
+  }
+
+  const passed = platformRecognized && !domainBlocked && urlCoherent;
   const score = passed ? 100 : 0;
 
   return {
@@ -182,6 +213,8 @@ export async function checkLegitimacy(community: Community): Promise<GateResult>
       platformRecognized,
       domain: community.domain,
       domainBlocked,
+      urlCoherent,
+      urlCoherenceReason: urlCoherenceReason || undefined,
     },
   };
 }

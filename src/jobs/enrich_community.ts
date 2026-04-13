@@ -6,6 +6,67 @@ import { enrichViaRedditApi } from "../enrichers/reddit.js";
 import { enrichViaDiscordInvite } from "../enrichers/discord.js";
 import { enrichViaScrape } from "../enrichers/scrape.js";
 import { normalizeUrl, inferPlatform } from "../lib/url-validator.js";
+import { logGeminiRejection } from "../lib/safeguards.js";
+
+// Known community platform URL patterns — primaryUrl should match one of these
+// or be on the same domain as the discovered URL
+const COMMUNITY_PLATFORM_PATTERNS = [
+  /discord\.gg\//,
+  /discord\.com\/invite\//,
+  /join\.slack\.com\//,
+  /\.slack\.com$/,
+  /reddit\.com\/r\//,
+  /skool\.com\//,
+  /circle\.so\//,
+  /\.circle\.so$/,
+  /mighty\.co\//,
+  /t\.me\//,
+  /facebook\.com\/groups\//,
+  /discourse\./,
+  /guilded\.gg\//,
+];
+
+// Domains that should never be a community's primaryUrl
+const INVALID_PRIMARY_DOMAINS = new Set([
+  'instagram.com', 'twitter.com', 'x.com', 'youtube.com', 'tiktok.com',
+  'linkedin.com', 'medium.com', 'substack.com', 'spotify.com',
+  'anchor.fm', 'podcasts.apple.com', 'open.spotify.com',
+]);
+
+function isValidPrimaryUrl(primaryUrl: string, discoveredUrl: string, platform: string): { valid: boolean; reason?: string } {
+  try {
+    const primaryDomain = new URL(primaryUrl).hostname.replace(/^www\./, '');
+    const discoveredDomain = new URL(discoveredUrl).hostname.replace(/^www\./, '');
+
+    // Check against blocked primary domains
+    for (const blocked of INVALID_PRIMARY_DOMAINS) {
+      if (primaryDomain === blocked || primaryDomain.endsWith(`.${blocked}`)) {
+        return { valid: false, reason: `primaryUrl domain ${primaryDomain} is not a community platform` };
+      }
+    }
+
+    // If primary domain matches discovered domain, it's fine
+    if (primaryDomain === discoveredDomain) return { valid: true };
+
+    // If primary URL matches a known community platform pattern, it's fine
+    for (const pattern of COMMUNITY_PLATFORM_PATTERNS) {
+      if (pattern.test(primaryUrl)) return { valid: true };
+    }
+
+    // Platform-URL consistency: check that the platform claim matches the URL
+    if (platform === 'slack' && !primaryUrl.includes('slack.com')) {
+      return { valid: false, reason: `platform is slack but primaryUrl ${primaryDomain} is not a slack domain` };
+    }
+    if (platform === 'discord' && !primaryUrl.includes('discord.gg') && !primaryUrl.includes('discord.com/invite')) {
+      return { valid: false, reason: `platform is discord but primaryUrl ${primaryDomain} is not a discord invite` };
+    }
+
+    // Domain mismatch and not a recognized platform — suspicious
+    return { valid: false, reason: `primaryUrl domain ${primaryDomain} doesn't match discovered domain ${discoveredDomain} and isn't a recognized community platform` };
+  } catch {
+    return { valid: false, reason: 'invalid primaryUrl' };
+  }
+}
 
 function slugify(name: string): string {
   return name
@@ -87,7 +148,6 @@ export const enrich_community: Task = async (_payload, helpers) => {
       }
 
       if (!communityData) {
-        // Rejected by Gemini or API returned no data
         rejected++;
         await sql`
           UPDATE discovered_urls
@@ -95,6 +155,23 @@ export const enrich_community: Task = async (_payload, helpers) => {
           WHERE id = ${row.id}
         `;
         continue;
+      }
+
+      // ── Post-extraction URL validation ──
+      // Catch cases where Gemini extracted a primaryUrl pointing to an unrelated site
+      if (communityData.primaryUrl) {
+        const urlCheck = isValidPrimaryUrl(communityData.primaryUrl, row.url, communityData.platform || platform);
+        if (!urlCheck.valid) {
+          helpers.logger.warn(`[enrich_community] URL validation failed for ${row.url}: ${urlCheck.reason}`);
+          await logGeminiRejection(row.url, `URL validation: ${urlCheck.reason}`);
+          rejected++;
+          await sql`
+            UPDATE discovered_urls
+            SET status = 'rejected', rejection_reason = ${`URL validation: ${urlCheck.reason}`}
+            WHERE id = ${row.id}
+          `;
+          continue;
+        }
       }
 
       // Generate slug
