@@ -13,9 +13,10 @@ const EXTRACTION_PROMPT = `You are extracting data about ONE specific online com
 
 HARD RULES — VIOLATING ANY OF THESE MEANS RETURN {"valid": false}:
 1. This page MUST be the community's own page — its homepage, landing page, about page, or platform profile. If this is a blog post, listicle, directory, news article, comparison article, or any page that discusses MULTIPLE communities, return {"valid": false, "reason": "not a community page"}.
-2. The entity described must be a COMMUNITY — a place where people gather, discuss, and interact with each other. Products, tools, companies, SaaS platforms, courses without community features, newsletters, and personal blogs are NOT communities.
+2. The entity described must be a COMMUNITY — a place where people gather, discuss, and interact with each other. Products, tools, companies, SaaS platforms, courses without community features, newsletters, podcasts, event/conference pages, and personal blogs are NOT communities. A community MUST have ongoing member-to-member interaction (forums, chat, discussions).
 3. Only extract data explicitly stated on the page. If a field's value cannot be determined, use null. NEVER estimate or fabricate.
 4. Member counts must come directly from the page. If the page says "10,000+ members," extract 10000 with confidence "approximate." If no count is mentioned, use null.
+5. If the page contains only dates older than 12 months with no recent activity, return {"valid": false, "reason": "appears inactive — no recent content"}.
 
 Return a JSON object matching this schema:
 {

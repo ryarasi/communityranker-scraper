@@ -202,6 +202,16 @@ export async function resolveDiscordInvite(inviteCode: string): Promise<{
       { headers: { "User-Agent": "CommunityRanker/1.0" } }
     );
 
+    // Parse rate limit headers for adaptive throttling
+    const remaining = response.headers.get("x-ratelimit-remaining");
+    const resetAfter = response.headers.get("x-ratelimit-reset-after");
+    if (remaining !== null) {
+      (globalThis as any).__discordRateLimitRemaining = parseInt(remaining, 10);
+    }
+    if (resetAfter !== null) {
+      (globalThis as any).__discordRateLimitReset = Date.now() / 1000 + parseFloat(resetAfter);
+    }
+
     if (!response.ok) return null;
 
     const data: any = await response.json();

@@ -59,27 +59,37 @@ export async function searchSerper(
   }
 }
 
-// Smart search: site-scoped queries only
+// Smart search: expanded site-scoped queries + community patterns
 export async function searchSmartSerper(
   category: string,
-  sites: string[] = ["discord.gg", "circle.so", "skool.com"]
 ): Promise<SerperResult[]> {
   const results: SerperResult[] = [];
 
-  for (const site of sites) {
-    const siteResults = await searchSerper(`site:${site} ${category}`, 10);
-    results.push(...siteResults);
+  // Platform site-scoped searches
+  const siteQueries = [
+    `"${category}" site:discord.gg`,
+    `"${category}" site:reddit.com/r/`,
+    `"${category}" site:skool.com`,
+    `"${category}" site:circle.so`,
+  ];
 
-    // Small delay between queries
-    await new Promise((r) => setTimeout(r, 1000));
+  // Community pattern searches with negative filters
+  const patternQueries = [
+    `"${category} community" discord OR slack -site:medium.com -site:dev.to -"top 10" -"best of"`,
+    `"join our ${category}" community -site:medium.com -"top 10"`,
+  ];
+
+  const allQueries = [...siteQueries, ...patternQueries];
+
+  for (const query of allQueries) {
+    try {
+      const queryResults = await searchSerper(query, 10);
+      results.push(...queryResults);
+      await new Promise((r) => setTimeout(r, 1000));
+    } catch (err: any) {
+      console.error(`[serper_smart] Query failed: "${query}":`, err.message);
+    }
   }
-
-  // Also try "join our community" pattern
-  const joinResults = await searchSerper(
-    `"join our community" ${category} discord OR slack`,
-    10
-  );
-  results.push(...joinResults);
 
   return results;
 }

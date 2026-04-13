@@ -1,5 +1,9 @@
 import { resolveDiscordInvite } from "../lib/url-validator.js";
 
+// Track Discord rate limit state
+let discordRateLimitRemaining = 50;
+let discordRateLimitReset = 0;
+
 export interface DiscordEnrichment {
   name: string;
   description: string | null;
@@ -16,6 +20,17 @@ export async function enrichViaDiscordInvite(url: string): Promise<DiscordEnrich
   // Extract invite code from URL
   const match = url.match(/discord\.(?:gg|com\/invite)\/([a-zA-Z0-9-]+)/);
   if (!match) return null;
+
+  // Respect Discord rate limits
+  const now = Date.now() / 1000;
+  if (discordRateLimitRemaining <= 1 && now < discordRateLimitReset) {
+    const waitMs = (discordRateLimitReset - now) * 1000 + 100;
+    console.log(`[discord] Rate limited, waiting ${Math.round(waitMs)}ms`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+
+  // Minimum 100ms between Discord API calls
+  await new Promise((r) => setTimeout(r, 100));
 
   const inviteCode = match[1];
   const guild = await resolveDiscordInvite(inviteCode);
