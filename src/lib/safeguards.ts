@@ -27,7 +27,7 @@ const spendLog: SpendEntry[] = [];
 const BUDGET_THRESHOLDS: Record<string, number> = {
   spider: parseFloat(process.env.BUDGET_SPIDER_DAILY ?? "5"),
   gemini: parseFloat(process.env.BUDGET_GEMINI_DAILY ?? "2"),
-  serper: parseFloat(process.env.BUDGET_SERPER_DAILY ?? "1"),
+  serper: parseFloat(process.env.BUDGET_SERPER_DAILY ?? "5"),
 };
 
 export function logSpend(service: string, amount: number, jobId: string): void {
