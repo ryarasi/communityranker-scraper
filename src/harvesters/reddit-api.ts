@@ -33,12 +33,19 @@ const CATEGORY_QUERIES: Record<string, string[]> = {
 
 export async function harvestRedditApi(): Promise<number> {
   let inserted = 0;
+  let consecutiveErrors = 0;
 
   for (const [category, queries] of Object.entries(CATEGORY_QUERIES)) {
     for (const query of queries) {
       if (DRY_RUN) {
         dryRunLog("reddit_api", `Would search Reddit for: "${query}"`);
         continue;
+      }
+
+      // Bail early if Reddit is consistently blocking us (likely needs OAuth)
+      if (consecutiveErrors >= 5) {
+        console.log("[reddit_api] 5+ consecutive errors — Reddit likely requires OAuth. Skipping remaining queries.");
+        return inserted;
       }
 
       try {
@@ -51,6 +58,7 @@ export async function harvestRedditApi(): Promise<number> {
           }
         );
 
+        consecutiveErrors = 0; // Reset on success
         const subreddits = response.data?.data?.children ?? [];
 
         for (const child of subreddits) {
@@ -71,9 +79,10 @@ export async function harvestRedditApi(): Promise<number> {
         // Respect Reddit rate limits: 1 request per 2 seconds
         await new Promise((r) => setTimeout(r, 2000));
       } catch (err: any) {
+        consecutiveErrors++;
         console.error(`[reddit_api] Search failed for "${query}":`, err.message);
-        // Don't halt on individual query failures
-        await new Promise((r) => setTimeout(r, 5000));
+        // Short delay on errors
+        await new Promise((r) => setTimeout(r, 1000));
       }
     }
   }
