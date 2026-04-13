@@ -3,7 +3,6 @@ import { alertSuccess, alertError } from "../lib/alerts.js";
 import { DRY_RUN } from "../lib/safeguards.js";
 import { harvestRedditApi } from "../harvesters/reddit-api.js";
 import { harvestSerperSmart } from "../harvesters/serper-smart.js";
-import { harvestHiveIndex } from "../harvesters/hive-index.js";
 
 export const harvest_leads: Task = async (_payload, helpers) => {
   helpers.logger.info(`[harvest_leads] Starting${DRY_RUN ? " (DRY RUN)" : ""}...`);
@@ -13,7 +12,6 @@ export const harvest_leads: Task = async (_payload, helpers) => {
   // Run harvesters sequentially to respect rate limits
   const harvesters: [string, () => Promise<number>][] = [
     ["reddit_api", harvestRedditApi],
-    ["hive_index", harvestHiveIndex],
     ["serper_smart", harvestSerperSmart],
   ];
 
