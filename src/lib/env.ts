@@ -9,6 +9,7 @@ const envSchema = z.object({
   DATAFORSEO_LOGIN: z.string().default(""),
   DATAFORSEO_PASSWORD: z.string().default(""),
   DISCORD_WEBHOOK_URL: z.string().default(""),
+  CLOUDFLARE_DEPLOY_HOOK_URL: z.string().default(""),
   // Pipeline safeguard config
   DRY_RUN: z.string().default("false"),
   BUDGET_SPIDER_DAILY: z.string().default("5"),

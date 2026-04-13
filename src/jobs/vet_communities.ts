@@ -3,6 +3,7 @@ import { sql } from "../db/client.js";
 import { alertSuccess, alertWarning } from "../lib/alerts.js";
 import { DRY_RUN, dryRunLog } from "../lib/safeguards.js";
 import { runVettingGates } from "../vetting/gates.js";
+import { triggerDeploy } from "../lib/deploy-hook.js";
 
 export const vet_communities: Task = async (_payload, helpers) => {
   helpers.logger.info(`[vet_communities] Starting${DRY_RUN ? " (DRY RUN)" : ""}...`);
@@ -86,6 +87,7 @@ export const vet_communities: Task = async (_payload, helpers) => {
 
   if (published > 0) {
     await alertSuccess("Vetting Complete", summary);
+    await triggerDeploy();
   }
   if (rejected > rawCommunities.length * 0.7 && rawCommunities.length >= 10) {
     await alertWarning(
