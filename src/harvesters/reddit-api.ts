@@ -31,7 +31,17 @@ const CATEGORY_QUERIES: Record<string, string[]> = {
   "no-code": ["no code community", "low code subreddit"],
 };
 
+// Set to true once Reddit API OAuth credentials are configured.
+// Reddit blocks unauthenticated API access with 403 as of 2026-04.
+// Applied for access — re-enable when credentials arrive.
+const REDDIT_API_ENABLED = false;
+
 export async function harvestRedditApi(): Promise<number> {
+  if (!REDDIT_API_ENABLED) {
+    console.log("[reddit_api] Disabled — awaiting OAuth credentials. Skipping.");
+    return 0;
+  }
+
   let inserted = 0;
   let consecutiveErrors = 0;
 
@@ -42,9 +52,9 @@ export async function harvestRedditApi(): Promise<number> {
         continue;
       }
 
-      // Bail early if Reddit is consistently blocking us (likely needs OAuth)
+      // Bail early if Reddit is consistently blocking us
       if (consecutiveErrors >= 5) {
-        console.log("[reddit_api] 5+ consecutive errors — Reddit likely requires OAuth. Skipping remaining queries.");
+        console.log("[reddit_api] 5+ consecutive errors — skipping remaining queries.");
         return inserted;
       }
 
