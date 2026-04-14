@@ -34,7 +34,7 @@ const CATEGORY_QUERIES: Record<string, string[]> = {
 // Set to true once Reddit API OAuth credentials are configured.
 // Reddit blocks unauthenticated API access with 403 as of 2026-04.
 // Applied for access — re-enable when credentials arrive.
-const REDDIT_API_ENABLED = false;
+export const REDDIT_API_ENABLED = false;
 
 export async function harvestRedditApi(): Promise<number> {
   if (!REDDIT_API_ENABLED) {

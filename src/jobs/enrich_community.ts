@@ -7,6 +7,7 @@ import { enrichViaDiscordInvite } from "../enrichers/discord.js";
 import { enrichViaScrape } from "../enrichers/scrape.js";
 import { normalizeUrl, inferPlatform } from "../lib/url-validator.js";
 import { logGeminiRejection } from "../lib/safeguards.js";
+import { REDDIT_API_ENABLED } from "../harvesters/reddit-api.js";
 
 // Known community platform URL patterns — primaryUrl should match one of these
 // or be on the same domain as the discovered URL
@@ -33,6 +34,38 @@ const INVALID_PRIMARY_DOMAINS = new Set([
   'anchor.fm', 'podcasts.apple.com', 'open.spotify.com',
 ]);
 
+// TLD/eTLD labels we should NOT treat as the "brand" label when matching root-domain equivalence.
+// Covers common TLDs, common compound-TLD chunks (co.uk, com.au, mn.co), and generic subdomains
+// like "www", "app", "community" that are never the brand.
+const NON_BRAND_LABELS = new Set([
+  "www", "app", "apps", "community", "communities", "forum", "forums", "chat",
+  "hub", "join", "invite", "go", "get", "my", "en", "us",
+  "com", "org", "net", "io", "co", "uk", "au", "de", "fr", "nl", "gg", "so",
+  "fm", "tv", "app", "dev", "info", "biz", "ai", "me", "xyz", "site", "online",
+  "store", "club", "community", "social", "blog", "page", "pages", "mn", "live",
+  "news", "pro", "edu", "gov", "int", "mobi",
+]);
+
+// Extract the most specific "brand" label from a hostname by walking right-to-left
+// (from TLD towards subdomain) and taking the first label that isn't in NON_BRAND_LABELS
+// and is at least 3 characters. e.g. mindoasis.mn.co → "mindoasis", irc.freenode.net → "freenode".
+function brandLabel(hostname: string): string | null {
+  const parts = hostname.toLowerCase().split(".");
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const label = parts[i]!;
+    if (label.length >= 3 && !NON_BRAND_LABELS.has(label)) return label;
+  }
+  return null;
+}
+
+function domainsRelated(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.endsWith("." + b) || b.endsWith("." + a)) return true;
+  const brandA = brandLabel(a);
+  const brandB = brandLabel(b);
+  return Boolean(brandA && brandB && brandA === brandB);
+}
+
 function isValidPrimaryUrl(primaryUrl: string, discoveredUrl: string, platform: string): { valid: boolean; reason?: string } {
   try {
     const primaryDomain = new URL(primaryUrl).hostname.replace(/^www\./, '');
@@ -45,8 +78,9 @@ function isValidPrimaryUrl(primaryUrl: string, discoveredUrl: string, platform: 
       }
     }
 
-    // If primary domain matches discovered domain, it's fine
-    if (primaryDomain === discoveredDomain) return { valid: true };
+    // Same domain, subdomain variants, or same brand root across TLDs are all fine
+    // (e.g. mindoasis.mn.co ↔ mindoasis.org, irc.freenode.net ↔ freenode.net)
+    if (domainsRelated(primaryDomain, discoveredDomain)) return { valid: true };
 
     // If primary URL matches a known community platform pattern, it's fine
     for (const pattern of COMMUNITY_PLATFORM_PATTERNS) {
@@ -98,7 +132,21 @@ function activityToScore(level: string): number {
 export const enrich_community: Task = async (_payload, helpers) => {
   helpers.logger.info(`[enrich_community] Starting batch${DRY_RUN ? " (DRY RUN)" : ""}...`);
 
-  // Pick up pending discovered_urls
+  // One-shot: if Reddit is disabled, defer any pending reddit URLs so they stop
+  // getting picked up each batch. They'll be un-deferred manually once OAuth lands.
+  if (!REDDIT_API_ENABLED && !DRY_RUN) {
+    const deferred = await sql`
+      UPDATE discovered_urls
+      SET status = 'deferred', rejection_reason = 'reddit_oauth_pending'
+      WHERE status = 'pending' AND platform = 'reddit'
+      RETURNING id
+    `;
+    if (deferred.length > 0) {
+      helpers.logger.info(`[enrich_community] Deferred ${deferred.length} Reddit URLs — awaiting OAuth`);
+    }
+  }
+
+  // Pick up pending discovered_urls (reddit excluded above while OAuth pending)
   const BATCH_SIZE = 20;
   const pendingUrls = await sql`
     SELECT id, url, normalized_url, platform, source, basic_name

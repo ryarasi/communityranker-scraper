@@ -41,23 +41,41 @@ export function get24hSpend(service: string): number {
     .reduce((sum, e) => sum + e.amount, 0);
 }
 
+// Per-service alert dedupe — prevents spamming Discord with the same warning
+// every time checkBudget() is called (which happens per-URL in enrich loops).
+const lastAlertAt: Map<string, number> = new Map();
+const WARNING_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const EXCEEDED_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+
+function shouldAlert(key: string, cooldownMs: number): boolean {
+  const now = Date.now();
+  const last = lastAlertAt.get(key) ?? 0;
+  if (now - last < cooldownMs) return false;
+  lastAlertAt.set(key, now);
+  return true;
+}
+
 export async function checkBudget(service: string): Promise<boolean> {
   const spent = get24hSpend(service);
   const threshold = BUDGET_THRESHOLDS[service] ?? 5;
 
   if (spent >= threshold) {
-    await alertError(
-      "Budget Exceeded",
-      `${service} 24h spend: $${spent.toFixed(2)} (threshold: $${threshold.toFixed(2)}). Pipeline paused for this service.`
-    );
+    if (shouldAlert(`exceeded:${service}`, EXCEEDED_COOLDOWN_MS)) {
+      await alertError(
+        "Budget Exceeded",
+        `${service} 24h spend: $${spent.toFixed(2)} (threshold: $${threshold.toFixed(2)}). Pipeline paused for this service.`
+      );
+    }
     return false; // over budget
   }
 
   if (spent >= threshold * 0.8) {
-    await alertWarning(
-      "Budget Warning",
-      `${service} 24h spend: $${spent.toFixed(2)} (80% of $${threshold.toFixed(2)} threshold).`
-    );
+    if (shouldAlert(`warning:${service}`, WARNING_COOLDOWN_MS)) {
+      await alertWarning(
+        "Budget Warning",
+        `${service} 24h spend: $${spent.toFixed(2)} (80% of $${threshold.toFixed(2)} threshold).`
+      );
+    }
   }
 
   return true; // under budget
