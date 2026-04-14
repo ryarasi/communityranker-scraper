@@ -38,32 +38,45 @@ const INVALID_PRIMARY_DOMAINS = new Set([
 // Covers common TLDs, common compound-TLD chunks (co.uk, com.au, mn.co), and generic subdomains
 // like "www", "app", "community" that are never the brand.
 const NON_BRAND_LABELS = new Set([
+  // Generic subdomains
   "www", "app", "apps", "community", "communities", "forum", "forums", "chat",
-  "hub", "join", "invite", "go", "get", "my", "en", "us",
+  "hub", "join", "invite", "go", "get", "my", "en", "us", "help", "support",
+  "about", "info", "home", "main", "wiki", "docs", "beta", "dev", "staging",
+  "members", "member", "profile", "signup", "login", "auth", "api", "cdn",
+  "static", "assets", "media", "images", "img",
+  // TLDs + common ccTLD chunks
   "com", "org", "net", "io", "co", "uk", "au", "de", "fr", "nl", "gg", "so",
-  "fm", "tv", "app", "dev", "info", "biz", "ai", "me", "xyz", "site", "online",
-  "store", "club", "community", "social", "blog", "page", "pages", "mn", "live",
-  "news", "pro", "edu", "gov", "int", "mobi",
+  "fm", "tv", "ai", "me", "xyz", "site", "online", "store", "club", "social",
+  "blog", "page", "pages", "mn", "live", "news", "pro", "edu", "gov", "int",
+  "mobi", "biz", "info",
+  // Platform-host SLDs — these are the platform, not the brand
+  "slack", "discord", "skool", "circle", "reddit", "discourse", "telegram",
+  "facebook", "mighty", "guilded", "matrix", "element", "kajabi", "teachable",
+  "heartbeat", "tribe", "bettermode",
 ]);
 
-// Extract the most specific "brand" label from a hostname by walking right-to-left
-// (from TLD towards subdomain) and taking the first label that isn't in NON_BRAND_LABELS
-// and is at least 3 characters. e.g. mindoasis.mn.co → "mindoasis", irc.freenode.net → "freenode".
-function brandLabel(hostname: string): string | null {
-  const parts = hostname.toLowerCase().split(".");
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const label = parts[i]!;
-    if (label.length >= 3 && !NON_BRAND_LABELS.has(label)) return label;
+// Collect all "brand-candidate" labels from a hostname (≥4 chars, not a TLD/generic).
+// e.g. android-united.slack.com → {"android-united", "slack"}
+// e.g. android-united.community → {"android-united"}
+// Shared brand label between two hostnames means they refer to the same community.
+function brandLabels(hostname: string): Set<string> {
+  const out = new Set<string>();
+  for (const label of hostname.toLowerCase().split(".")) {
+    if (label.length >= 4 && !NON_BRAND_LABELS.has(label)) out.add(label);
   }
-  return null;
+  return out;
 }
 
 function domainsRelated(a: string, b: string): boolean {
   if (a === b) return true;
   if (a.endsWith("." + b) || b.endsWith("." + a)) return true;
-  const brandA = brandLabel(a);
-  const brandB = brandLabel(b);
-  return Boolean(brandA && brandB && brandA === brandB);
+  // Match if the two hostnames share any non-generic label ≥4 chars
+  // (handles same-brand-different-TLD and platform-hosted-vs-own-domain cases)
+  const labelsA = brandLabels(a);
+  for (const label of brandLabels(b)) {
+    if (labelsA.has(label)) return true;
+  }
+  return false;
 }
 
 function isValidPrimaryUrl(primaryUrl: string, discoveredUrl: string, platform: string): { valid: boolean; reason?: string } {
@@ -281,10 +294,16 @@ export const enrich_community: Task = async (_payload, helpers) => {
         RETURNING id
       `;
 
-      // Update discovered_url
+      // Update discovered_url — persist raw extraction too so future schema changes are replayable
+      const rawExtraction = communityData.rawExtraction ?? null;
+      const rawMarkdownLength = communityData.rawMarkdownLength ?? null;
       await sql`
         UPDATE discovered_urls
-        SET status = 'enriched', community_id = ${community.id}, enriched_at = NOW()
+        SET status = 'enriched',
+            community_id = ${community.id},
+            enriched_at = NOW(),
+            raw_extraction = ${rawExtraction ? JSON.stringify(rawExtraction) : null}::jsonb,
+            raw_markdown_length = ${rawMarkdownLength}
         WHERE id = ${row.id}
       `;
 

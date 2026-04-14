@@ -24,6 +24,9 @@ export interface ScrapeEnrichment {
   howToJoin: string | null;
   faqJson: Array<{ question: string; answer: string }> | null;
   longDescription: string | null;
+  // Raw extraction (persisted on discovered_urls so future schema bugs are replayable)
+  rawExtraction: unknown | null;
+  rawMarkdownLength: number | null;
 }
 
 export async function enrichViaScrape(url: string): Promise<ScrapeEnrichment | null> {
@@ -43,13 +46,28 @@ export async function enrichViaScrape(url: string): Promise<ScrapeEnrichment | n
   // Step 2: Extract with Gemini (strict prompt)
   const extraction = await extractCommunityData(markdown);
 
-  if (!extraction.valid) {
-    await logGeminiRejection(url, (extraction as { reason: string }).reason);
+  // Persist the raw Gemini response regardless of validation outcome, so if we
+  // later loosen the schema we can replay without re-paying Spider+Gemini.
+  const rawExtraction = extraction.raw;
+  const rawMarkdownLength = markdown.length;
+
+  if (!extraction.validated) {
+    await logGeminiRejection(
+      url,
+      extraction.validationError ?? "validation failed with no raw response"
+    );
+    // Persist raw on the discovered_urls row even though we're rejecting
+    await persistRawExtraction(url, rawExtraction, rawMarkdownLength);
     return null;
   }
 
-  // TypeScript narrowing: extraction is the valid branch
-  const data = extraction as Extract<CommunityExtraction, { valid: true }>;
+  if (!extraction.validated.valid) {
+    await logGeminiRejection(url, (extraction.validated as { reason: string }).reason);
+    await persistRawExtraction(url, rawExtraction, rawMarkdownLength);
+    return null;
+  }
+
+  const data = extraction.validated as Extract<CommunityExtraction, { valid: true }>;
 
   // Step 3: Generate SEO content (non-blocking — we still have the enrichment even if this fails)
   // Add 5s delay between Gemini calls for rate limiting
@@ -84,5 +102,26 @@ export async function enrichViaScrape(url: string): Promise<ScrapeEnrichment | n
     howToJoin: seo?.howToJoin ?? null,
     faqJson: seo?.faqJson ?? null,
     longDescription: seo?.longDescription ?? null,
+    rawExtraction,
+    rawMarkdownLength,
   };
+}
+
+// Stash the raw Gemini output on the discovered_urls row so a future schema change
+// can replay validation without re-calling Spider or Gemini.
+async function persistRawExtraction(
+  url: string,
+  raw: unknown,
+  markdownLength: number
+): Promise<void> {
+  if (!raw) return;
+  const { sql } = await import("../db/client.js");
+  await sql`
+    UPDATE discovered_urls
+    SET raw_extraction = ${JSON.stringify(raw)}::jsonb,
+        raw_markdown_length = ${markdownLength}
+    WHERE url = ${url} OR normalized_url = ${url}
+  `.catch((err) => {
+    console.error(`[scrape] Failed to persist raw extraction for ${url}: ${err.message}`);
+  });
 }

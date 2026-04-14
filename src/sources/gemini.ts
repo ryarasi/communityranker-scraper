@@ -60,12 +60,18 @@ export class GeminiConfigError extends Error {
 // Cost estimation: Gemini 2.5 Flash-Lite is ~$0.00025 per request on average
 const GEMINI_COST_PER_REQUEST = 0.00025;
 
+export interface ExtractionResult {
+  raw: unknown | null;              // parsed JSON from Gemini, pre-validation (null on parse failure)
+  validated: CommunityExtraction | null;  // Zod-validated object, null if validation failed
+  validationError: string | null;   // Zod error message if validation failed
+}
+
 export async function extractCommunityData(
   markdown: string
-): Promise<CommunityExtraction> {
+): Promise<ExtractionResult> {
   if (DRY_RUN) {
     dryRunLog("extract", `Would call Gemini with ${markdown.length} chars of markdown`);
-    return { valid: false, reason: "dry_run" };
+    return { raw: null, validated: { valid: false, reason: "dry_run" }, validationError: null };
   }
 
   if (isCircuitOpen("gemini")) {
@@ -89,12 +95,22 @@ export async function extractCommunityData(
     const jsonStr = (jsonMatch[1] ?? text).trim();
 
     const parsed = JSON.parse(jsonStr);
-    const validated = communityExtractionSchema.parse(parsed);
 
+    // Record spend + circuit success BEFORE validation so we still mark the call as
+    // successful from an API perspective even if the response shape is off.
     await recordApiSuccess("gemini");
     logSpend("gemini", GEMINI_COST_PER_REQUEST, "extract");
 
-    return validated;
+    // Run validation but preserve raw so caller can persist it for future replay.
+    const validation = communityExtractionSchema.safeParse(parsed);
+    if (validation.success) {
+      return { raw: parsed, validated: validation.data, validationError: null };
+    }
+    return {
+      raw: parsed,
+      validated: null,
+      validationError: JSON.stringify(validation.error.issues).slice(0, 2000),
+    };
   } catch (err: any) {
     const msg = err?.message ?? String(err);
 
