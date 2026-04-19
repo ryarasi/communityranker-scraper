@@ -3,7 +3,7 @@ import { sql } from "../db/client.js";
 import { DRY_RUN, dryRunLog, checkBudget } from "../lib/safeguards.js";
 import { alertSuccess } from "../lib/alerts.js";
 import { enrichViaRedditApi } from "../enrichers/reddit.js";
-import { enrichViaDiscordInvite } from "../enrichers/discord.js";
+import { enrichViaDiscordInvite, isDiscordRejection } from "../enrichers/discord.js";
 import { crawlUrl } from "../sources/spider.js";
 
 export const refresh_stale: Task = async (_payload, helpers) => {
@@ -61,7 +61,7 @@ export const refresh_stale: Task = async (_payload, helpers) => {
         }
       } else if (community.platform === "discord") {
         const data = await enrichViaDiscordInvite(community.primary_url);
-        if (data) {
+        if (data && !isDiscordRejection(data)) {
           await sql`
             UPDATE communities SET
               member_count = ${data.memberCount},

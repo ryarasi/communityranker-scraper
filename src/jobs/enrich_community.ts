@@ -3,7 +3,7 @@ import { sql } from "../db/client.js";
 import { alertSuccess, alertError } from "../lib/alerts.js";
 import { DRY_RUN, dryRunLog, checkYield, recordYield, checkBudget } from "../lib/safeguards.js";
 import { enrichViaRedditApi } from "../enrichers/reddit.js";
-import { enrichViaDiscordInvite } from "../enrichers/discord.js";
+import { enrichViaDiscordInvite, isDiscordRejection } from "../enrichers/discord.js";
 import { enrichViaScrape } from "../enrichers/scrape.js";
 import { normalizeUrl, inferPlatform } from "../lib/url-validator.js";
 import { logGeminiRejection } from "../lib/safeguards.js";
@@ -196,7 +196,17 @@ export const enrich_community: Task = async (_payload, helpers) => {
       if (platform === "reddit") {
         communityData = await enrichViaRedditApi(row.url);
       } else if (platform === "discord") {
-        communityData = await enrichViaDiscordInvite(row.url);
+        const discordResult = await enrichViaDiscordInvite(row.url);
+        if (isDiscordRejection(discordResult)) {
+          rejected++;
+          await sql`
+            UPDATE discovered_urls
+            SET status = 'rejected', rejection_reason = ${discordResult.reason}
+            WHERE id = ${row.id}
+          `;
+          continue;
+        }
+        communityData = discordResult;
       } else {
         // Generic scrape + AI extraction
         if (!(await checkBudget("spider")) || !(await checkBudget("gemini"))) {
@@ -258,7 +268,7 @@ export const enrich_community: Task = async (_payload, helpers) => {
           founded_year, founder_name, unique_value,
           who_should_join, how_to_join, faq_json,
           logo_url, logo_source,
-          cover_image_url, status, last_scraped_at
+          cover_image_url, canonical_guild_id, status, last_scraped_at
         ) VALUES (
           ${name}, ${slug},
           ${communityData.description ?? null},
@@ -282,6 +292,7 @@ export const enrich_community: Task = async (_payload, helpers) => {
           ${communityData.logoUrl ?? null},
           ${communityData.logoUrl ? (communityData.platform === "reddit" ? "platform_cdn" : communityData.platform === "discord" ? "platform_cdn" : "og_image") : null},
           ${communityData.coverImageUrl ?? null},
+          ${communityData.canonicalGuildId ?? null},
           'raw',
           NOW()
         )
@@ -289,6 +300,7 @@ export const enrich_community: Task = async (_payload, helpers) => {
           description = COALESCE(EXCLUDED.description, communities.description),
           member_count = COALESCE(EXCLUDED.member_count, communities.member_count),
           activity_score = COALESCE(EXCLUDED.activity_score, communities.activity_score),
+          canonical_guild_id = COALESCE(EXCLUDED.canonical_guild_id, communities.canonical_guild_id),
           last_scraped_at = NOW(),
           updated_at = NOW()
         RETURNING id

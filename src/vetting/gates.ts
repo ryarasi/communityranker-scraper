@@ -30,19 +30,16 @@ export async function checkLiveness(community: Community): Promise<GateResult> {
     return { gate, passed: false, score: 0, details: { reason: "No primary URL" } };
   }
 
-  try {
-    // For Discord invites, check via API
-    if (community.platform === "discord") {
-      const match = community.primaryUrl.match(/discord\.(?:gg|com\/invite)\/([a-zA-Z0-9-]+)/);
-      if (match) {
-        const response = await fetch(`https://discord.com/api/v10/invites/${match[1]}`, {
-          headers: { "User-Agent": "CommunityRanker/1.0" },
-        });
-        const alive = response.ok;
-        return { gate, passed: alive, score: alive ? 100 : 0, details: { status: response.status } };
-      }
-    }
+  // Discord liveness is now verified inside the enricher (one `/invites?with_counts`
+  // call that doubles as liveness + activity data). Dead invites are pre-rejected
+  // at enrichment time and never reach vetting. A second API call here would just
+  // burn our 50 req/s Discord budget and double-count the same signal — trust the
+  // upstream check. Staleness re-checks belong in `refresh_stale`, not here.
+  if (community.platform === "discord") {
+    return { gate, passed: true, score: 100, details: { verifiedAt: "enrichment" } };
+  }
 
+  try {
     // For Reddit, check the subreddit about page
     if (community.platform === "reddit") {
       const match = community.primaryUrl.match(/reddit\.com\/r\/([^\/\?#]+)/);
