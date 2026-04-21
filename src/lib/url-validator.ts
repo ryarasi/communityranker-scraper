@@ -1,4 +1,5 @@
 import { sql } from "../db/client.js";
+import { computePriority } from "./priority.js";
 
 // ─── URL NORMALIZATION ───
 
@@ -155,22 +156,44 @@ export async function insertDiscoveredUrl(
     return { inserted: false, reason: classification.reason };
   }
 
-  // Check for duplicate
-  if (await isDuplicate(normalized)) {
+  // Check for duplicate — but if it exists, bump its priority if this new
+  // `source` adds signal. Multi-source discovery is a strong quality hint.
+  const [existing] = await sql<{ id: number }[]>`
+    SELECT id FROM discovered_urls WHERE normalized_url = ${normalized} LIMIT 1
+  `;
+  if (existing) {
+    // Priority heuristic: +25 for second source. Only bump once per URL to
+    // avoid runaway scores if the same URL gets re-harvested daily.
+    await sql`
+      UPDATE discovered_urls
+      SET priority = priority + 25
+      WHERE id = ${existing.id}
+        AND NOT (source = ${source})
+        AND priority < 100
+    `;
     return { inserted: false, reason: "Duplicate URL" };
   }
+
+  const priority = computePriority({
+    source,
+    platform: classification.platform,
+    memberHint: metadata?.basicMemberCount ?? null,
+    extraSources: 0,
+  });
 
   try {
     const [result] = await sql`
       INSERT INTO discovered_urls (
         url, normalized_url, source, source_url, platform,
-        basic_name, basic_description, basic_member_count, basic_topics, status
+        basic_name, basic_description, basic_member_count, basic_topics,
+        priority, status
       ) VALUES (
         ${url}, ${normalized}, ${source}, ${sourceUrl},
         ${classification.platform},
         ${metadata?.basicName ?? null}, ${metadata?.basicDescription ?? null},
         ${metadata?.basicMemberCount ?? null},
         ${metadata?.basicTopics ? sql`${metadata.basicTopics}::text[]` : null},
+        ${priority},
         'pending'
       )
       ON CONFLICT (normalized_url) DO NOTHING

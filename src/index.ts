@@ -12,6 +12,9 @@ import { refresh_stale } from "./jobs/refresh_stale.js";
 import { compute_scores } from "./jobs/compute_scores.js";
 import { take_snapshots } from "./jobs/take_snapshots.js";
 import { harvest_hive_sitemap } from "./jobs/harvest_hive_sitemap.js";
+import { harvest_hive_seed } from "./jobs/harvest_hive_seed.js";
+import { harvest_disboard } from "./jobs/harvest_disboard.js";
+import { harvest_curated_lists } from "./jobs/harvest_curated_lists.js";
 
 async function main() {
   // Validate all API keys and connections before starting
@@ -33,17 +36,26 @@ async function main() {
       refresh_stale,
       compute_scores,
       take_snapshots,
-      harvest_hive_sitemap, // One-time job, not on cron. Trigger: add_job('harvest_hive_sitemap', '{}')
+      harvest_hive_sitemap,      // One-time bulk; trigger: add_job('harvest_hive_sitemap', '{}')
+      harvest_hive_seed,         // Staggered daily drip from local sitemap.
+      harvest_disboard,          // Daily Disboard tag-page harvest.
+      harvest_curated_lists,     // Weekly curated GitHub awesome-list harvest.
     },
     parsedCronItems: parseCrontab(
       [
         // Discovery: 02:00 UTC daily
         "0 2 * * * harvest_leads ?fill=1d",
-        // Enrichment: every 10 minutes (picks up pending URLs)
+        // Disboard tag harvest: 03:00 UTC daily (§3.1)
+        "0 3 * * * harvest_disboard ?fill=1d",
+        // Hive sitemap staggered seed: 03:30 UTC daily (§3, Ragav's Q3)
+        "30 3 * * * harvest_hive_seed ?fill=1d",
+        // Curated awesome-lists: Sunday 03:00 UTC (§3.2)
+        "0 3 * * 0 harvest_curated_lists ?fill=7d",
+        // Enrichment: every 10 minutes (picks up pending URLs, now priority-ordered)
         "*/10 * * * * enrich_community ?fill=10m",
         // Vetting: 04:00 UTC daily
         "0 4 * * * vet_communities ?fill=1d",
-        // Refresh stale: 05:00 UTC daily
+        // Refresh stale: 05:00 UTC daily (incl. stale-Discord prune)
         "0 5 * * * refresh_stale ?fill=1d",
         // Compute scores: 06:00 UTC daily
         "0 6 * * * compute_scores ?fill=1d",
