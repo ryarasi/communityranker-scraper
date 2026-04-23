@@ -15,6 +15,7 @@ import { harvest_hive_sitemap } from "./jobs/harvest_hive_sitemap.js";
 import { harvest_hive_seed } from "./jobs/harvest_hive_seed.js";
 import { harvest_disboard } from "./jobs/harvest_disboard.js";
 import { harvest_curated_lists } from "./jobs/harvest_curated_lists.js";
+import { harvest_skool } from "./jobs/harvest_skool.js";
 
 async function main() {
   // Validate all API keys and connections before starting
@@ -40,6 +41,7 @@ async function main() {
       harvest_hive_seed,         // Staggered daily drip from local sitemap.
       harvest_disboard,          // Daily Disboard tag-page harvest.
       harvest_curated_lists,     // Weekly curated GitHub awesome-list harvest.
+      harvest_skool,             // Weekly Skool /discovery sweep (Sunday).
     },
     parsedCronItems: parseCrontab(
       [
@@ -51,6 +53,8 @@ async function main() {
         "30 3 * * * harvest_hive_seed ?fill=1d",
         // Curated awesome-lists: Sunday 03:00 UTC (§3.2)
         "0 3 * * 0 harvest_curated_lists ?fill=7d",
+        // Skool /discovery sweep: Sunday 04:00 UTC (single-letter alphabet)
+        "0 4 * * 0 harvest_skool ?fill=7d",
         // Enrichment: every 10 minutes (picks up pending URLs, now priority-ordered)
         "*/10 * * * * enrich_community ?fill=10m",
         // Vetting: 04:00 UTC daily

@@ -1,7 +1,7 @@
-import axios from "axios";
 import { insertDiscoveredUrl } from "../lib/url-validator.js";
-import { DRY_RUN, dryRunLog, isCircuitOpen, recordApiError, recordApiSuccess } from "../lib/safeguards.js";
+import { DRY_RUN, dryRunLog, isCircuitOpen } from "../lib/safeguards.js";
 import { remainingDailyCap } from "../lib/daily-cap.js";
+import { httpGet, CircuitOpenError, DeadTargetError } from "../lib/http.js";
 
 // Disboard harvester (throughput-strategy §3.1).
 //
@@ -127,27 +127,39 @@ function findClosest<T>(
   return best ? best.value : null;
 }
 
+// Tracks the last-fetched URL so subsequent requests send a Referer that
+// matches an organic browse (Disboard flags non-browser traffic by looking
+// at fingerprint consistency — a request with no Referer to the third
+// tag page in a row is a clear tell).
+let lastDisboardUrl: string | undefined;
+
 async function fetchDisboardTag(tag: string): Promise<string | null> {
   if (isCircuitOpen(CIRCUIT_KEY)) {
     console.log(`[disboard] Circuit open, skipping tag=${tag}`);
     return null;
   }
+  const url = `${DISBOARD_BASE}/servers/tag/${encodeURIComponent(tag)}`;
   try {
-    const response = await axios.get(
-      `${DISBOARD_BASE}/servers/tag/${encodeURIComponent(tag)}`,
-      {
-        headers: {
-          "User-Agent": "CommunityRankerBot/1.0 (+https://communityranker.com)",
-          "Accept": "text/html,application/xhtml+xml",
-        },
-        timeout: 15_000,
-      }
-    );
-    await recordApiSuccess(CIRCUIT_KEY);
-    return response.data as string;
-  } catch (err: any) {
-    const status = err?.response?.status;
-    await recordApiError(CIRCUIT_KEY, err.message, status);
+    const result = await httpGet(url, {
+      circuitKey: CIRCUIT_KEY,
+      referer: lastDisboardUrl,
+      minDelayMs: 1_500,
+      maxDelayMs: 3_000,
+      maxRetries: 3,
+      timeout: 20_000,
+    });
+    lastDisboardUrl = url;
+    return result.body;
+  } catch (err: unknown) {
+    if (err instanceof CircuitOpenError) {
+      console.log(`[disboard] Circuit tripped, skipping tag=${tag}`);
+      return null;
+    }
+    if (err instanceof DeadTargetError) {
+      console.log(`[disboard] tag=${tag} 404/410, skipping`);
+      return null;
+    }
+    console.error(`[disboard] tag=${tag} fetch failed: ${(err as Error).message}`);
     return null;
   }
 }
@@ -188,9 +200,7 @@ export async function harvestDisboard(
         cap--;
       }
     }
-
-    // Courtesy delay between tag fetches. Disboard rate-limits at ~1/s.
-    await new Promise((r) => setTimeout(r, 1500));
+    // Pacing is handled by httpGet's pre-request delay (1.5-3s random).
   }
 
   console.log(`[disboard] Inserted ${inserted} new invite URLs`);
