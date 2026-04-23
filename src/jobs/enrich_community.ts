@@ -159,13 +159,15 @@ export const enrich_community: Task = async (_payload, helpers) => {
     }
   }
 
-  // Pick up pending discovered_urls (reddit excluded above while OAuth pending)
+  // Pick up pending discovered_urls (reddit excluded above while OAuth pending).
+  // `priority DESC` ensures curated-list + multi-source + free-enricher URLs
+  // drain ahead of generic Serper backlog. See lib/priority.ts.
   const BATCH_SIZE = 20;
   const pendingUrls = await sql`
     SELECT id, url, normalized_url, platform, source, basic_name
     FROM discovered_urls
     WHERE status = 'pending'
-    ORDER BY discovered_at ASC
+    ORDER BY priority DESC, discovered_at ASC
     LIMIT ${BATCH_SIZE}
   `;
 
